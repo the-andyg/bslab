@@ -38,13 +38,16 @@
 #include "myfs-info.h"
 #include "blockdevice.h"
 
+MyFsFileInfo *files = new MyFsFileInfo[NUM_DIR_ENTRIES];
+int currentFileNumber;
+
 /// @brief Constructor of the in-memory file system class.
 ///
 /// You may add your own constructor code here.
 MyInMemoryFS::MyInMemoryFS() : MyFS() {
 
     // TODO: [PART 1] Add your constructor code here
-
+    currentFileNumber = 2;  //Minimum due to fuse-standard files
 }
 
 /// @brief Destructor of the in-memory file system class.
@@ -67,7 +70,34 @@ MyInMemoryFS::~MyInMemoryFS() {
 int MyInMemoryFS::fuseMknod(const char *path, mode_t mode, dev_t dev) {
     LOGM();
 
-    // TODO: [PART 1] Implement this!
+    // TODO: [PART 1] Implement this
+    if(strlen(path) > NAME_LENGTH) { //Check for given name length
+        LOGF("Given Name %s exceeds NAME_LENGTH var\n", path);
+        return - EIO;
+    } else {
+        for(size_t i = 0; i < NUM_DIR_ENTRIES - 1; i++ ) { //Check for duplicate filename
+            if(strcmp(files[i].name, path + 1) == 0) {
+                LOGF("File of name %s already exists.\n", path);
+                return - EIO;   //return I/O Error due to existing namespace
+            }
+        }
+        for(size_t i = 0; i < NUM_DIR_ENTRIES - 1; i++ ) {
+            if(strcmp(files[i].name, "" ) != 0) {
+                continue;
+            } else { //Empty place Found
+                LOGF("Empty place found \nCreating File %s at index %zu!\n", path, i);
+                strcpy(files[i].name, path+1);
+                files[i].size = BASIC_FILE_SIZE; //assign basic size of (look myfs-structs.h)
+                files[i].data = static_cast<char*>(malloc(files[i].size));
+                files[i].permissions = mode;
+                files[i].groupID = 0;
+                files[i].ownerID = 0;
+                files[i].links = 2;
+                break;
+            }
+        }
+    }
+
 
     RETURN(0);
 }
@@ -110,11 +140,24 @@ int MyInMemoryFS::fuseRename(const char *path, const char *newpath) {
 /// \param [out] statbuf Structure containing the meta data, for details type "man 2 stat" in a terminal.
 /// \return 0 on success, -ERRNO on failure.
 int MyInMemoryFS::fuseGetattr(const char *path, struct stat *statbuf) {
-    LOGM();
+    int ret = 0;
 
     // TODO: [PART 1] Implement this!
+    //Search for requested File in FileArray files and save the index to variable
+    int fileIndex = getFileIndexFromFileName()
 
-    LOGF( "\tAttributes of %s requested\n", path );
+//    for(int i = 0; i < NUM_DIR_ENTRIES; i++ ) {
+//        if(strcmp(files[i].name, path + 1) == 0) {
+//            fileIndex = i;
+//            break;
+//        } else if(i == NUM_DIR_ENTRIES - 1 && strcmp(files[i].name, path + 1) != 0 ) {
+//            ret = - ENOENT;
+//        }
+//    }
+
+    LOGF("File %s found at index %d\n", path, fileIndex);
+
+    LOGF( "Attributes of %s requested\n", path );
 
     // GNU's definitions of the attributes (http://www.gnu.org/software/libc/manual/html_node/Attribute-Meanings.html):
     // 		st_uid: 	The user ID of the file’s owner.
@@ -135,22 +178,25 @@ int MyInMemoryFS::fuseGetattr(const char *path, struct stat *statbuf) {
     statbuf->st_gid = getgid(); // The group of the file/directory is the same as the group of the user who mounted the filesystem
     statbuf->st_atime = time( NULL ); // The last "a"ccess of the file/directory is right now
     statbuf->st_mtime = time( NULL ); // The last "m"odification of the file/directory is right now
-
-    int ret= 0;
+    statbuf->st_nlink = files[fileIndex].links;
+    statbuf->st_size  = int(files[fileIndex].size);
 
     if ( strcmp( path, "/" ) == 0 )
     {
         statbuf->st_mode = S_IFDIR | 0755;
         statbuf->st_nlink = 2; // Why "two" hardlinks instead of "one"? The answer is here: http://unix.stackexchange.com/a/101536
     }
-    else if ( strcmp( path, "/file54" ) == 0 || ( strcmp( path, "/file349" ) == 0 ) )
+    else //if ( strcmp( path, "/file54" ) == 0 || ( strcmp( path, "/file349" ) == 0 ) )
     {
         statbuf->st_mode = S_IFREG | 0644;
         statbuf->st_nlink = 1;
         statbuf->st_size = 1024;
     }
-    else
-        ret= -ENOENT;
+//    else {
+//        ret = - ENOENT;
+//    }
+
+
 
     RETURN(ret);
 }
@@ -266,6 +312,7 @@ int MyInMemoryFS::fuseWrite(const char *path, const char *buf, size_t size, off_
 
     // TODO: [PART 1] Implement this!
 
+
     RETURN(0);
 }
 
@@ -341,6 +388,12 @@ int MyInMemoryFS::fuseReaddir(const char *path, void *buf, fuse_fill_dir_t fille
     {
         filler( buf, "file54", NULL, 0 );
         filler( buf, "file349", NULL, 0 );
+
+        for(int i = 0; i < NUM_DIR_ENTRIES; i++) {
+            if(strcmp(files[i].name, "") != 0) {
+                filler( buf, files[i].name, NULL, 0);
+            }
+        }
     }
 
     RETURN(0);
@@ -375,12 +428,22 @@ void* MyInMemoryFS::fuseInit(struct fuse_conn_info *conn) {
 /// This function is called when the file system is unmounted. You may add some cleanup code here.
 void MyInMemoryFS::fuseDestroy() {
     LOGM();
-
+    free(files);
     // TODO: [PART 1] Implement this!
 
 }
 
 // TODO: [PART 1] You may add your own additional methods here!
+int getFileIndexFromFileName(const char* path) {
+    int fileIndex = -1;
+    for(int i = 0; i < NUM_DIR_ENTRIES; i++ ) {
+        if(strcmp(files[i].name, path + 1) == 0) {
+            fileIndex = i;
+            break;
+        }
+    }
+    return fileIndex;
+}
 
 // DO NOT EDIT ANYTHING BELOW THIS LINE!!!
 
