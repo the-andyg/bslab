@@ -39,7 +39,8 @@
 #include "blockdevice.h"
 
 MyFsFileInfo *files = new MyFsFileInfo[NUM_DIR_ENTRIES];
-int currentFileNumber;
+int currentFileCount;
+int openedFiles;
 
 /// @brief Constructor of the in-memory file system class.
 ///
@@ -47,7 +48,8 @@ int currentFileNumber;
 MyInMemoryFS::MyInMemoryFS() : MyFS() {
 
     // TODO: [PART 1] Add your constructor code here
-    currentFileNumber = 2;  //Minimum due to fuse-standard files
+    currentFileCount = 2;  //Minimum due to fuse-standard files
+    openedFiles = 0;
 }
 
 /// @brief Destructor of the in-memory file system class.
@@ -144,16 +146,16 @@ int MyInMemoryFS::fuseGetattr(const char *path, struct stat *statbuf) {
 
     // TODO: [PART 1] Implement this!
     //Search for requested File in FileArray files and save the index to variable
-    int fileIndex = getFileIndexFromFileName()
+    int fileIndex = -1;
 
-//    for(int i = 0; i < NUM_DIR_ENTRIES; i++ ) {
-//        if(strcmp(files[i].name, path + 1) == 0) {
-//            fileIndex = i;
-//            break;
-//        } else if(i == NUM_DIR_ENTRIES - 1 && strcmp(files[i].name, path + 1) != 0 ) {
-//            ret = - ENOENT;
-//        }
-//    }
+    for(int i = 0; i < NUM_DIR_ENTRIES; i++ ) {
+        if(strcmp(files[i].name, path + 1) == 0) {
+            fileIndex = i;
+            break;
+        } else if(i == NUM_DIR_ENTRIES - 1 && strcmp(files[i].name, path + 1) != 0 ) {
+            ret = - ENOENT;
+        }
+    }
 
     LOGF("File %s found at index %d\n", path, fileIndex);
 
@@ -180,23 +182,14 @@ int MyInMemoryFS::fuseGetattr(const char *path, struct stat *statbuf) {
     statbuf->st_mtime = time( NULL ); // The last "m"odification of the file/directory is right now
     statbuf->st_nlink = files[fileIndex].links;
     statbuf->st_size  = int(files[fileIndex].size);
+    //statbuf->st_mode = S_IFREG | 0644;
+    statbuf->st_mode = files[fileIndex].permissions;
 
-    if ( strcmp( path, "/" ) == 0 )
+    if ( strcmp( path, "/" ) == 0 ) //if it is the base directory
     {
         statbuf->st_mode = S_IFDIR | 0755;
         statbuf->st_nlink = 2; // Why "two" hardlinks instead of "one"? The answer is here: http://unix.stackexchange.com/a/101536
     }
-    else //if ( strcmp( path, "/file54" ) == 0 || ( strcmp( path, "/file349" ) == 0 ) )
-    {
-        statbuf->st_mode = S_IFREG | 0644;
-        statbuf->st_nlink = 1;
-        statbuf->st_size = 1024;
-    }
-//    else {
-//        ret = - ENOENT;
-//    }
-
-
 
     RETURN(ret);
 }
@@ -434,7 +427,7 @@ void MyInMemoryFS::fuseDestroy() {
 }
 
 // TODO: [PART 1] You may add your own additional methods here!
-int getFileIndexFromFileName(const char* path) {
+int MyInMemoryFS::getFileIndexFromFileName(const char* path) {
     int fileIndex = -1;
     for(int i = 0; i < NUM_DIR_ENTRIES; i++ ) {
         if(strcmp(files[i].name, path + 1) == 0) {
